@@ -1,4 +1,4 @@
-export const API_BASE = "https://disease-predictions-6itm.onrender.com";                     
+export const API_BASE = "https://disease-predictions-wycg.onrender.com";                     
 // export const API_BASE = "http://localhost:5000";                                 
 
 
