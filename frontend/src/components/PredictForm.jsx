@@ -13,18 +13,23 @@ export default function PredictForm() {
     const [search, setSearch] = useState("");
     const [activeGroup, setActiveGroup] = useState(FEATURE_GROUPS[0].name);
 
+    // Get all symptom IDs for counting and searching
+    const allSymptomIds = FEATURE_GROUPS.flatMap(group =>
+        group.items.map(item => item.id)
+    );
+
     // Toggle symptom
-    const handleToggle = (name) => {
+    const handleToggle = (symptomId) => {
         setFeatures((prev) => ({
             ...prev,
-            [name]: prev[name] === 1 ? 0 : 1,
+            [symptomId]: prev[symptomId] === 1 ? 0 : 1,
         }));
         setSearch(""); // clear after choosing
     };
 
     // Count selected
     const selectedCount = Object.values(features).filter((v) => v === 1).length;
-    const totalCount = FEATURE_GROUPS.reduce((a, g) => a + g.items.length, 0);
+    const totalCount = allSymptomIds.length;
 
     // Submit prediction
     const handleSubmit = async (e) => {
@@ -40,7 +45,13 @@ export default function PredictForm() {
             const orderedFeatures = SYMPTOMS_ORDER.map(
                 (symptom) => Number(features[symptom] || 0)
             );
-            const response = await predictDisease({ features: orderedFeatures });
+            const selectedSymptoms = Object.entries(features)
+                .filter(([_, value]) => value === 1)
+                .reduce((acc, [key]) => {
+                    acc[key] = Number(1);
+                    return acc;
+                }, {});
+            const response = await predictDisease({ features: selectedSymptoms });
             setResult(response);
         } catch (error) {
             console.error("Prediction error:", error);
@@ -77,11 +88,37 @@ export default function PredictForm() {
         setActiveGroup(FEATURE_GROUPS[0].name);
     };
 
-    // Suggestions for search bar
+    // Get symptom display name
+    const getSymptomDisplayName = (symptomId) => {
+        for (const group of FEATURE_GROUPS) {
+            const symptom = group.items.find(item => item.id === symptomId);
+            if (symptom) {
+                return symptom.commonName;
+            }
+        }
+        return symptomId; // fallback to ID if not found
+    };
+
+    // Get symptom by ID
+    const getSymptomById = (symptomId) => {
+        for (const group of FEATURE_GROUPS) {
+            const symptom = group.items.find(item => item.id === symptomId);
+            if (symptom) return symptom;
+        }
+        return null;
+    };
+
+    // Suggestions for search bar - search both ID and common name
     const filteredSuggestions = search
-        ? SYMPTOMS_ORDER.filter((symptom) =>
-            symptom.toLowerCase().includes(search.toLowerCase())
-          ).slice(0, 8) // show top 8
+        ? allSymptomIds
+            .filter(symptomId => {
+                const symptom = getSymptomById(symptomId);
+                return symptom && (
+                    symptom.id.toLowerCase().includes(search.toLowerCase()) ||
+                    symptom.commonName.toLowerCase().includes(search.toLowerCase())
+                );
+            })
+            .slice(0, 8) // show top 8
         : [];
 
     return (
@@ -96,59 +133,66 @@ export default function PredictForm() {
                 </p>
             </div>
 
-            {/* Progress Card */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-5 border border-gray-200 dark:border-gray-700">
-                <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold text-gray-800 dark:text-gray-200">
-                        Selected Symptoms
-                    </h3>
-                    <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                        {selectedCount} / {totalCount}
-                    </span>
+            {/* Progress Card and Search Bar in One Line */}
+            <div className="flex flex-col sm:flex-row gap-4 items-stretch">
+                {/* Progress Card */}
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-5 border border-gray-200 dark:border-gray-700 flex-1 min-w-0">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+                            Selected Symptoms
+                        </h3>
+                        <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                            {selectedCount} / {totalCount}
+                        </span>
+                    </div>
+                    <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full">
+                        <motion.div
+                            className="h-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{
+                                width: `${(selectedCount / totalCount) * 100}%`,
+                            }}
+                            transition={{ duration: 0.5 }}
+                        />
+                    </div>
                 </div>
-                <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full">
-                    <motion.div
-                        className="h-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{
-                            width:  `${(selectedCount / totalCount) * 100}% `,
-                        }}
-                        transition={{ duration: 0.5 }}
-                    />
-                </div>
+
+                {/* Search Bar with Suggestions */}
+                {!result && (
+                    <div className="relative flex-1 min-w-0">
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search symptoms..."
+                            className="w-full h-full px-4 py-3 border rounded-lg dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
+                        />
+
+                        {/* Suggestions Dropdown */}
+                        {filteredSuggestions.length > 0 && (
+                            <ul className="absolute z-20 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 mt-1 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                {filteredSuggestions.map((symptomId, index) => {
+                                    const symptom = getSymptomById(symptomId);
+                                    return (
+                                        <li
+                                            key={index}
+                                            onClick={() => handleToggle(symptomId)}
+                                            className={`px-4 py-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-gray-700 ${features[symptomId] === 1
+                                                    ? "bg-blue-500 text-white"
+                                                    : "text-gray-800 dark:text-gray-200"
+                                                }`}
+                                        >
+                                            <div>
+                                                <div className="font-medium">{symptom.commonName}</div>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </div>
+                )}
             </div>
-
-            {/* Search Bar with Suggestions */}
-            {!result && (
-                <div className="relative w-full sm:w-2/3 mx-auto">
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search symptoms..."
-                        className="w-full px-4 py-3 border rounded-lg dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500"
-                    />
-
-                    {/* Suggestions Dropdown */}
-                    {filteredSuggestions.length > 0 && (
-                        <ul className="absolute z-20 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 mt-1 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            {filteredSuggestions.map((symptom, index) => (
-                                <li
-                                    key={index}
-                                    onClick={() => handleToggle(symptom)}
-                                    className={`px-4 py-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-gray-700 ${
-                                        features[symptom] === 1
-                                            ? "bg-blue-500 text-white"
-                                            : "text-gray-800 dark:text-gray-200"
-                                    }`}
-                                >
-                                    {symptom}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </div>
-            )}
 
             {/* Navigation Tabs */}
             {!result && (
@@ -159,13 +203,12 @@ export default function PredictForm() {
                             type="button"
                             onClick={() => setActiveGroup(group.name)}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition 
-                                ${
-                                    activeGroup === group.name
-                                        ? "bg-blue-600 text-white"
-                                        : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 text-gray-700 hover:bg-blue-100 dark:hover:bg-gray-600"
+                                ${activeGroup === group.name
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 text-gray-700 hover:bg-blue-100 dark:hover:bg-gray-600"
                                 }`}
                         >
-                            {group.name}
+                            {group.icon} {group.name}
                         </button>
                     ))}
                 </div>
@@ -180,7 +223,7 @@ export default function PredictForm() {
                         exit={{ opacity: 0, height: 0 }}
                         className="space-y-5 overflow-hidden"
                     >
-                        <div className="max-h-[500px] overflow-y-auto pr-2 space-y-5">
+                        <div className="pr-2">
                             {FEATURE_GROUPS.filter(
                                 (g) => g.name === activeGroup
                             ).map((group) => (
@@ -188,33 +231,31 @@ export default function PredictForm() {
                                     key={group.name}
                                     className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden"
                                 >
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 p-5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 p-3">
                                         {group.items
-                                            .filter((f) =>
-                                                f.toLowerCase().includes(
-                                                    search.toLowerCase()
-                                                )
+                                            .filter((symptom) =>
+                                                symptom.id.toLowerCase().includes(search.toLowerCase()) ||
+                                                symptom.commonName.toLowerCase().includes(search.toLowerCase())
                                             )
-                                            .map((f, i) => (
+                                            .map((symptom, i) => (
                                                 <motion.button
                                                     key={i}
                                                     type="button"
                                                     onClick={() =>
-                                                        handleToggle(f)
+                                                        handleToggle(symptom.id)
                                                     }
                                                     whileHover={{ scale: 1.03 }}
                                                     whileTap={{ scale: 0.97 }}
-                                                    className={`px-4 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center
-                                                        ${
-                                                            features[f] === 1
-                                                                ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md"
-                                                                : "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600"
+                                                    className={`py-3 rounded-xl text-sm font-medium transition-all flex flex-col items-center justify-center text-center
+                                                        ${features[symptom.id] === 1
+                                                            ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md"
+                                                            : "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600"
                                                         }`}
                                                 >
-                                                    {features[f] === 1 && (
-                                                        <i className="fas fa-check-circle mr-2"></i>
+                                                    {features[symptom.id] === 1 && (
+                                                        <i className="fas fa-check-circle mb-1"></i>
                                                     )}
-                                                    {f}
+                                                    <div className="font-medium">{symptom.commonName}</div>
                                                 </motion.button>
                                             ))}
                                     </div>
@@ -240,10 +281,9 @@ export default function PredictForm() {
                             whileHover={{ scale: selectedCount > 0 ? 1.05 : 1 }}
                             whileTap={{ scale: selectedCount > 0 ? 0.95 : 1 }}
                             className={`px-8 py-4 text-lg font-bold rounded-xl shadow-lg transition flex items-center
-                                ${
-                                    selectedCount > 0 && !isLoading
-                                        ? "bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:shadow-xl"
-                                        : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                ${selectedCount > 0 && !isLoading
+                                    ? "bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:shadow-xl"
+                                    : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                                 }`}
                         >
                             {isLoading ? (
@@ -285,6 +325,25 @@ export default function PredictForm() {
                             <p className="text-green-100 mt-2">
                                 Based on {selectedCount} selected symptoms
                             </p>
+                        </div>
+
+                        {/* Selected Symptoms List */}
+                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 border border-gray-200 dark:border-gray-700">
+                            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
+                                Selected Symptoms ({selectedCount})
+                            </h4>
+                            <div className="flex flex-wrap gap-2">
+                                {Object.entries(features)
+                                    .filter(([_, value]) => value === 1)
+                                    .map(([symptomId]) => (
+                                        <span
+                                            key={symptomId}
+                                            className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full text-sm font-medium"
+                                        >
+                                            {getSymptomDisplayName(symptomId)}
+                                        </span>
+                                    ))}
+                            </div>
                         </div>
 
                         {/* Feedback Section */}
@@ -342,18 +401,16 @@ export default function PredictForm() {
                                     className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 border border-gray-200 dark:border-gray-700 text-center"
                                 >
                                     <div
-                                        className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
-                                            isCorrect
+                                        className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4 ${isCorrect
                                                 ? "bg-green-100 dark:bg-green-900/30"
                                                 : "bg-red-100 dark:bg-red-900/30"
-                                        }`}
+                                            }`}
                                     >
                                         <i
-                                            className={`text-2xl ${
-                                                isCorrect
+                                            className={`text-2xl ${isCorrect
                                                     ? "fas fa-check-circle text-green-500"
                                                     : "fas fa-times-circle text-red-500"
-                                            }`}
+                                                }`}
                                         ></i>
                                     </div>
                                     <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">

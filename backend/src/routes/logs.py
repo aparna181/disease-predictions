@@ -1,29 +1,39 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from bson import ObjectId
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any
 
-from db.db import collection
-from utils.helpers import update_status
+from src.db.db import DB
+from src.utils.helpers import Helpers
 
 router = APIRouter()
 
-class UpdateStatus(BaseModel):
-    id: str
-    value: str
+db = DB()
+helpers = Helpers(db)
 
-@router.get("/get-logs")
+class UpdateStatus(BaseModel):
+    id: str = Field(..., description="MongoDB document ID")
+    value: str = Field(..., description="New status value")
+
+class LogEntry(BaseModel):
+    features: Dict[str, Any]
+    predicted: Any
+    status: str
+    timestamp: str
+
+@router.get("/get-logs", response_model=List[LogEntry])
 def get_logs():
-    logs = []
-    for log in collection.find().sort("timestamp", -1):
-        logs.append({
-            "id": str(log["_id"]),
-            "features": log.get("features", []),
-            "predicted": log.get("predicted"),
-            "status": log.get("status", "not_reviewed"),
-            "timestamp": log.get("timestamp")
-        })
-    return {"logs": logs}
+    return helpers.get_all_logs()
+
 
 @router.post("/add-status")
 def add_status(data: UpdateStatus):
-    return update_status(data.id, data.value, collection)
+    """
+    Update the status of a prediction log.
+    """
+    try:
+        result = helpers.update_status(data.id, data.value)
+        if result["modified_count"] == 0:
+            raise HTTPException(status_code=404, detail="Document not found or status already set")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

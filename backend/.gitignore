@@ -2,3 +2,5 @@ __pycache__/
 venv
 .env
 catboost_info/
+*.txt
+*test*.*

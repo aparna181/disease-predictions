@@ -1,19 +1,22 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from typing import Dict, Any
 import numpy as np
-from db.db import collection
-
-from models.predict import predict
-from utils.helpers import add_log
+from src.models.predict import Predict
+from src.db.db import DB
+from src.utils.helpers import Helpers
 
 router = APIRouter()
+predict = Predict()
+db = DB()
+helper = Helpers(db)
 
 MODEL_PATH = "models/final_model.joblib"
 LABEL_ENCODER_PATH = "models/label_encoder.joblib"
 FEATURES_PATH = "models/features.joblib"
 
 class SymptomsInput(BaseModel):
-    features: list[int]
+    features: Dict[str, Any]
 
 
 @router.get("/")
@@ -28,10 +31,9 @@ def home():
 
 @router.post("/predict")
 def predict_disease(data: SymptomsInput):
-    x = np.array(data.features).reshape(1, -1)
-    pred, features = predict(x, MODEL_PATH, LABEL_ENCODER_PATH, FEATURES_PATH)
-    record = add_log(features, str(pred), collection)
+    pred = predict.predict(data.features, is_train=False)
+    record_id = helper.add_log(data.features, str(pred))
     return {
         "predicted_class": str(pred),
-        "log_id": str(record) 
+        "log_id": str(record_id) 
     }

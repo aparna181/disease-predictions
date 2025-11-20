@@ -1,55 +1,56 @@
+import os
 import pandas as pd
-import numpy as np
-from sklearn.feature_selection import VarianceThreshold, SelectKBest, chi2
+import joblib
 
-def load_and_clean(path, target="prognosis"):
-    df = pd.read_csv(path).drop_duplicates()
-    df = df.drop(columns=[c for c in df.columns if "Unnamed" in c], errors="ignore")
+from src.models.train import Train 
 
-    # droped "fluid_overload" as it has constant value 
-    df.drop("fluid_overload", axis=1, inplace=True)
+class Preprocess(Train):
+    def __init__(self):
+        super().__init__()
 
-    # Rename "fluid_overload.1" as "fluid_overload" 
-    df.rename(columns={"fluid_overload.1": "fluid_overload"}, inplace=True)
-    
-    drop_cols = [
-    "belly_pain", "stomach_pain", "muscle_weakness", "muscle_wasting", "family_history", "extra_marital_contacts", 
-    "receiving_blood_transfusion", "receiving_unsterile_injections", "history_of_alcohol_consumption" ]
-    df = df.drop(columns=drop_cols, errors="ignore")
-    x = df.drop(columns=[target])
-    y = df[target]
+    def merge_and_drop_col(self, df, col1, col2):
+        df[col1] = df[col1] | df[col2]
+        df = df.drop(columns=[col2])
+        return df
 
-    print(f"Loaded {path} | Shape: {df.shape}")
-    return x, y
+    def preprocess_data(self, data, is_train=True, target="prognosis"):
+        x_test = pd.DataFrame([data])
 
-def remove_low_variance_features(x: pd.DataFrame, threshold=0.01):
-    var_thresh = VarianceThreshold(threshold=threshold)
-    x_var = var_thresh.fit_transform(x)
-    x_var = pd.DataFrame(x_var, columns=x.columns[var_thresh.get_support()])
-    print(f"Low-variance filter: {x.shape[1]} -> {x_var.shape[1]} features")
-    return x_var
+        if is_train:
+            # Reading cev file
+            df = pd.read_csv(self.raw_training_csv_path).drop_duplicates()
+            df = df.drop(columns=[c for c in df.columns if "Unnamed" in c], errors="ignore")
 
-def remove_highly_correlated(x:pd.DataFrame, threshold=0.9):
-    corr_matrix = x.corr().abs()
-    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-    to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
-    x_uncorr = x.drop(columns=to_drop)
-    print(f"Removed {len(to_drop)} highly correlated features")
-    return x_uncorr
+            # droped "fluid_overload" as it has constant value 
+            df.drop("fluid_overload", axis=1, inplace=True)
 
-def select_k_best_features(x:pd.DataFrame, y:pd.DataFrame, k=40):
-    selector = SelectKBest(score_func=chi2, k=k)
-    x_best = selector.fit_transform(x, y)
-    best_cols = x.columns[selector.get_support()]
-    print(f"Selected top {k} features")
-    return pd.DataFrame(x_best, columns=best_cols)
+            # Rename "fluid_overload.1" as "fluid_overload" 
+            df.rename(columns={"fluid_overload.1": "fluid_overload"}, inplace=True)
+            
+            # Removing duplicate rows.
+            df = df.drop_duplicates()
 
-def feature_selection_pipeline(path, target="prognosis", var_thresh=0.01, corr_thresh=0.9, top_k=40):
-    x, y = load_and_clean(path, target=target)
-    x = remove_low_variance_features(x, threshold=var_thresh)
-    x = remove_highly_correlated(x, threshold=corr_thresh)
-    x_best = select_k_best_features(x, y, k=top_k)
+            # Columns with similar name
+            similar_columns = [
+                ("swollen_extremeties","swollen_legs"),
+                ("abdominal_pain","belly_pain"),
+                ("increased_appetite","excessive_hunger"),
+                ("visual_disturbances","blurred_and_distorted_vision"),
+                ("palpitations","fast_heart_rate")
+            ]
 
-    x_best[target] = y.values
+            # Merging and removing column with similar names
+            for col1, col2 in similar_columns:
+                df = self.merge_and_drop_col(df, col1, col2)
+            x = df.drop(columns=[target])
+            self.train_and_save_model(df)
+            joblib.dump(list(x.columns), self.FEATURES_PATH)
 
-    return x_best
+        symptoms = joblib.load(self.FEATURES_PATH)
+        missing_symptoms = [s for s in symptoms if s not in x_test.columns]
+        if missing_symptoms:
+            missing_df = pd.DataFrame(0, index=x_test.index, columns=missing_symptoms)
+            x_test = pd.concat([x_test, missing_df], axis=1)
+            x_test = x_test[list(symptoms)]
+
+        return x_test
